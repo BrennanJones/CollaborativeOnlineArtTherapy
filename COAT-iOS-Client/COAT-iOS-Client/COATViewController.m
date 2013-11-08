@@ -6,6 +6,8 @@
 //  Copyright (c) 2013 Brennan Jones. All rights reserved.
 //
 
+// KODY'S CHANGE
+
 #import "COATViewController.h"
 
 @interface COATViewController ()
