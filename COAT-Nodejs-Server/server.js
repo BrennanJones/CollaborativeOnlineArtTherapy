@@ -1,11 +1,11 @@
 /**
  *
- * app.js
+ * server.js
  * Node.js Server
  *
  * Written by Brennan Jones
  *
- * Last modified: 26 October 2013
+ * Last modified: 9 November 2013
  *
  */
 
@@ -66,10 +66,21 @@ io.sockets.on('connection', function(socket)
 		console.log(data.echo);
 	});
 	
-	socket.on('Pan', function(data)
+	socket.on('BeginDraw', function(data)
 	{
 		// Broadcast to all except new clients.
-		socket.broadcast.emit('Pan', data);
+		socket.broadcast.emit('BeginDraw', data);
+		
+		// Save message data.
+		messageEvents[numMessages] = 'Pan';
+		messages[numMessages] = data;
+		numMessages++;
+	});
+	
+	socket.on('ContinueDraw', function(data)
+	{
+		// Broadcast to all except new clients.
+		socket.broadcast.emit('ContinueDraw', data);
 		
 		// Save message data.
 		messageEvents[numMessages] = 'Pan';

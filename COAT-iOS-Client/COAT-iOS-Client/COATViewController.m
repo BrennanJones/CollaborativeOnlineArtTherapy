@@ -29,6 +29,9 @@
     [self.socketIO connectToHost:@"10.11.126.177" onPort:12345];
     
     customView = (COATCustomView *)self.view;
+    
+    self.prevXs = [[NSMutableDictionary alloc] init];
+    self.prevYs = [[NSMutableDictionary alloc] init];
 }
 
 - (void)didReceiveMemoryWarning
@@ -74,73 +77,31 @@
         [self addClient:(NSString *)arg[@"clientId"]];
     }
     
-    else if([packet.name isEqualToString:@"Pan"])
+    else if ([packet.name isEqualToString:@"BeginDraw"])
     {
         NSString *clientId = (NSString *)arg[@"clientId"];
         NSString *x = (NSString *)arg[@"x"];
         NSString *y = (NSString *)arg[@"y"];
-        NSString *prevX = (NSString *)arg[@"prevX"];
-        NSString *prevY = (NSString *)arg[@"prevY"];
-        NSString *state = (NSString *)arg[@"state"];
-        NSString *color = (NSString *)arg[@"color"];
         NSInteger width = [(NSString *)arg[@"width"] intValue];
+        NSString *colorR = (NSString *)arg[@"colorR"];
+        NSString *colorG = (NSString *)arg[@"colorG"];
+        NSString *colorB = (NSString *)arg[@"colorB"];
+        NSString *colorA = (NSString *)arg[@"colorA"];
         
-        CGPoint current = CGPointMake([x floatValue], [y floatValue]);
-        CGPoint previous = CGPointMake([prevX floatValue], [prevY floatValue]);
-        CGPoint midPoint = midpoint(previous, current);
+        UIColor *color = [UIColor colorWithRed:[colorR floatValue] green:[colorG floatValue] blue:[colorB floatValue] alpha:[colorA floatValue]];
         
-        if ([state isEqualToString:@"began"]) {
-            
-            // create new path and new line
-            UIBezierPath *newPath = [UIBezierPath bezierPath];
-            
-            
-            ////// --- CLIENT SENDS THIS INFO WITH FLAG (new array element)
-            // tells the other clients this is a new line
-            
-            
-            // start point for path
-            [newPath moveToPoint:current];
-            
-            // create new line in the array
-            COATLine *newLine = [[COATLine alloc] init];
-            
-            // style the line with current client settings
-            if ([color isEqualToString:@"purple"])
-            {
-                newLine.color = [UIColor purpleColor];
-            }
-            else if ([color isEqualToString:@"blue"])
-            {
-                newLine.color = [UIColor blueColor];
-            }
-            else if ([color isEqualToString:@"green"])
-            {
-                newLine.color = [UIColor greenColor];
-            }
-            newLine.width = width;
-            
-            ////// --- SEND ALL DATA ABOVE TO CLIENT
-            // when received, the client adds line to the appropriate array
-            // this needs to have a client id, which would map to an index
-            // in the array of arrays
-            //
-            // start point, color, and width are all sent
-            // may need to track current and previous points as well, for
-            // midline/control point calculation
-            //
-            // then -- basically rebuild as above
-            
-            // add the line to the line array
-            newLine.path = newPath;
-            [(NSMutableArray *)(customView.lineArrays[clientId]) addObject:newLine];
-            
-        } else if ([state isEqualToString:@"changed"]) {
-            
-            // add the point to the latest line in the array
-            // send this with a different flag to the client
-            [((COATLine *) [(NSMutableArray *)(customView.lineArrays[clientId]) lastObject]).path addQuadCurveToPoint:midPoint controlPoint:previous];
-        }
+        [self clientBeginDraw:clientId fromX:[x floatValue] fromY:[y floatValue] withWidth:width withColor:color];
+        
+        [customView setNeedsDisplay];
+    }
+    
+    else if ([packet.name isEqualToString:@"ContinueDraw"])
+    {
+        NSString *clientId = (NSString *)arg[@"clientId"];
+        NSString *x = (NSString *)arg[@"x"];
+        NSString *y = (NSString *)arg[@"y"];
+        
+        [self clientContinueDraw:clientId atX:[x floatValue] atY:[y floatValue]];
         
         [customView setNeedsDisplay];
     }
@@ -149,10 +110,11 @@
 -(void) addClient:(NSString *)clientId
 {
     [customView.lineArrays setObject:[[NSMutableArray alloc] init] forKey:clientId];
+    [self.prevXs setObject:@"0.0" forKey:clientId];
+    [self.prevYs setObject:@"0.0" forKey:clientId];
 }
 
 - (void)pan:(UIPanGestureRecognizer *)pan{
-    
     // get current touchpoint
     self.current = [pan locationInView:customView];
     
@@ -160,81 +122,74 @@
     [json setObject:self.myClientId forKey:@"clientId"];
     [json setObject:[NSString stringWithFormat:@"%.2f", self.current.x] forKey:@"x"];
     [json setObject:[NSString stringWithFormat:@"%.2f", self.current.y] forKey:@"y"];
-    [json setObject:[NSString stringWithFormat:@"%.2f", self.previous.x] forKey:@"prevX"];
-    [json setObject:[NSString stringWithFormat:@"%.2f", self.previous.y] forKey:@"prevY"];
-    [json setObject:[NSString stringWithFormat:@"%d", self.currentWidth] forKey:@"width"];
     
     if (pan.state == UIGestureRecognizerStateBegan)
     {
-        [json setObject:@"began" forKey:@"state"];
+        [json setObject:[NSString stringWithFormat:@"%d", self.currentWidth] forKey:@"width"];
+        
+        CGFloat *redComponent = malloc(sizeof(CGFloat));
+        CGFloat *greenComponent = malloc(sizeof(CGFloat));
+        CGFloat *blueComponent = malloc(sizeof(CGFloat));
+        CGFloat *alphaComponent = malloc(sizeof(CGFloat));
+        
+        [self.currentColor getRed:redComponent green:greenComponent blue:blueComponent alpha:alphaComponent];
+        
+        [json setObject:[NSString stringWithFormat:@"%.2f", *redComponent] forKey:@"colorR"];
+        [json setObject:[NSString stringWithFormat:@"%.2f", *greenComponent] forKey:@"colorG"];
+        [json setObject:[NSString stringWithFormat:@"%.2f", *blueComponent] forKey:@"colorB"];
+        [json setObject:[NSString stringWithFormat:@"%.2f", *alphaComponent] forKey:@"colorA"];
+        
+        [self.socketIO sendEvent:@"BeginDraw" withData:json];
+        
+        [self clientBeginDraw:self.myClientId fromX:self.current.x fromY:self.current.y withWidth:self.currentWidth withColor:self.currentColor];
+        
+        [customView setNeedsDisplay];
     }
+    
     else if (pan.state == UIGestureRecognizerStateChanged)
     {
-        [json setObject:@"changed" forKey:@"state"];
+        [self.socketIO sendEvent:@"ContinueDraw" withData:json];
+        
+        [self clientContinueDraw:self.myClientId atX:self.current.x atY:self.current.y];
+        
+        [customView setNeedsDisplay];
     }
+}
+
+- (void) clientBeginDraw:(NSString *)clientId fromX:(CGFloat)x fromY:(CGFloat)y withWidth:(NSInteger)width withColor:(UIColor *)color
+{
+    // create new path and new line
+    UIBezierPath *newPath = [UIBezierPath bezierPath];
     
-    if (self.currentColor == [UIColor purpleColor])
-    {
-        [json setObject:@"purple" forKey:@"color"];
-    }
-    else if (self.currentColor == [UIColor blueColor])
-    {
-        [json setObject:@"blue" forKey:@"color"];
-    }
-    else if (self.currentColor == [UIColor greenColor])
-    {
-        [json setObject:@"green" forKey:@"color"];
-    }
+    // start point for path
+    [newPath moveToPoint:CGPointMake(x, y)];
     
-    [self.socketIO sendEvent:@"Pan" withData:json];
+    // create new line in the array
+    COATLine *newLine = [[COATLine alloc] init];
     
-    CGPoint midPoint = midpoint(self.previous, self.current);
+    // style the line with current client settings
+    newLine.color = color;
+    newLine.width = width;
     
-    if (pan.state == UIGestureRecognizerStateBegan) {
-        
-        // create new path and new line
-        UIBezierPath *newPath = [UIBezierPath bezierPath];
-        
-        
-        ////// --- CLIENT SENDS THIS INFO WITH FLAG (new array element)
-        // tells the other clients this is a new line
-        
-        
-        // start point for path
-        [newPath moveToPoint:self.current];
-        
-        // create new line in the array
-        COATLine *newLine = [[COATLine alloc] init];
-        
-        // style the line with current client settings
-        newLine.color = self.currentColor;
-        newLine.width = self.currentWidth;
-        
-        ////// --- SEND ALL DATA ABOVE TO CLIENT
-        // when received, the client adds line to the appropriate array
-        // this needs to have a client id, which would map to an index
-        // in the array of arrays
-        //
-        // start point, color, and width are all sent
-        // may need to track current and previous points as well, for
-        // midline/control point calculation
-        //
-        // then -- basically rebuild as above
-        
-        // add the line to the line array
-        newLine.path = newPath;
-        [customView.lineArrays[self.myClientId] addObject:newLine];
-        
-    } else if (pan.state == UIGestureRecognizerStateChanged) {
-        
-        // add the point to the latest line in the array
-        // send this with a different flag to the client
-        [((COATLine *) [(NSMutableArray *)(customView.lineArrays[self.myClientId]) lastObject]).path addQuadCurveToPoint:midPoint controlPoint:self.previous];
-    }
+    // add the line to the line array
+    newLine.path = newPath;
+    [customView.lineArrays[clientId] addObject:newLine];
     
-    self.previous = self.current;
+    [self.prevXs setObject:[NSString stringWithFormat:@"%.2f", x] forKey:clientId];
+    [self.prevYs setObject:[NSString stringWithFormat:@"%.2f", y] forKey:clientId];
+}
+
+-(void) clientContinueDraw:(NSString *)clientId atX:(CGFloat)x atY:(CGFloat)y
+{
+    CGPoint previous = CGPointMake([self.prevXs[clientId] floatValue], [self.prevYs[clientId] floatValue]);
+    CGPoint current = CGPointMake(x, y);
+    CGPoint midPoint = midpoint(previous, current);
     
-    [customView setNeedsDisplay];
+    // add the point to the latest line in the array
+    [((COATLine *) [(NSMutableArray *)(customView.lineArrays[clientId]) lastObject]).path addQuadCurveToPoint:midPoint controlPoint:previous];
+    
+    [self.prevXs setObject:[NSString stringWithFormat:@"%.2f", x] forKey:clientId];
+    [self.prevYs setObject:[NSString stringWithFormat:@"%.2f", y] forKey:clientId];
 }
 
 // Midpoint Formula

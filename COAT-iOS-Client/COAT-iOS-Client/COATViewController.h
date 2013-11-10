@@ -16,9 +16,11 @@
 
 @property (nonatomic) CGPoint current;
 @property (nonatomic) CGPoint previous;
-@property (nonatomic) UIColor *lineColor;
 @property (nonatomic) UIColor *currentColor;
-@property (nonatomic) int currentWidth;
+@property (nonatomic) NSInteger currentWidth;
+
+@property (nonatomic) NSMutableDictionary *prevXs;
+@property (nonatomic) NSMutableDictionary *prevYs;
 
 - (IBAction)purplePress:(UIButton *)sender;
 - (IBAction)bluePress:(UIButton *)sender;
